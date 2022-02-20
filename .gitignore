@@ -2,3 +2,4 @@
 .history/
 *.vsix
 *testdata.txt
+*.wasm
