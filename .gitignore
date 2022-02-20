@@ -3,3 +3,5 @@
 *.vsix
 *testdata.txt
 *.wasm
+tests
+*.test.js
