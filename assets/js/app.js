@@ -117,7 +117,7 @@ async function config(passcode, serverUrl) {
     await apiRequest({
             "Handle": "/login",
             "Passcode": passcode,
-            "Timestamp": `${parseInt(Date.now()/1000)}`
+            "Timestamp": parseInt(Date.now()/1000)
         }).then((r) => r.text().then((t) => JSON.parse(t)))
         .then((jso) => {
             META = {}
@@ -147,8 +147,9 @@ async function config(passcode, serverUrl) {
 
 function loginRoutine() {
     if (DEF_PASSCODE) {
-        console.log("exists")
-        // Display logout button
+        document.getElementById("lb").style.display = "block"
+        document.getElementById("mc").style.filter = ""
+
     } else {
         // Display the login form
         const loginForm = document.getElementById("login")
@@ -156,8 +157,11 @@ function loginRoutine() {
         const passInput = document.getElementById("passInput")
         const srvInput = document.getElementById("srvInput")
         const lErr = document.getElementById("l-err")
-        loginForm.style.display = "block"
+        const mc = document.getElementById("mc")
 
+        loginForm.style.display = "block"
+        mc.style.filter = "blur(6px)"
+        
         // Bind login logic to a button
         btn.onclick = function () {
             let pass = passInput.value
@@ -175,6 +179,9 @@ function loginRoutine() {
                     } else {
                         // login ok
                         loginForm.style.display = "none"
+                        mc.style.filter = ""
+                        document.getElementById("lb").style.display = "block"
+
                     }
                 })
 

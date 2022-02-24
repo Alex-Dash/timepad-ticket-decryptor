@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,10 +14,20 @@ import (
 type ReqObj struct {
 	Handle    string
 	Passcode  string
-	Timestamp string
-	TicketId  string
+	Timestamp int
+	TicketId  int
 	TFrom     string
 	TTo       string
+}
+
+type EventObj struct {
+	event string
+	id    int
+	time  int
+}
+type SyncObj struct {
+	client_timestamp int
+	events           []EventObj
 }
 
 const chkUrl = "https://checkin.timepad.ru"
@@ -26,10 +37,14 @@ func main() {
 	http.Handle("/", http.FileServer(http.Dir("../../assets")))
 
 	http.HandleFunc("/req", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			fmt.Fprint(w, "Not yet implemented")
-		case http.MethodPost:
+
+		// Allow requests from different origins
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		// This API responds only with JSON, unlike Timepad
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.Method == http.MethodPost {
 
 			// Parse input
 			var obj ReqObj
@@ -39,27 +54,15 @@ func main() {
 				return
 			}
 
-			// Prepare proxy vars
-			data := url.Values{
-				"code":             {obj.Passcode},
-				"client_timestamp": {obj.Timestamp},
-			}
-
-			req, err := http.NewRequest("POST", chkUrl+obj.Handle, strings.NewReader(data.Encode()))
-
+			// Do a request to Timepad API
+			resp, err := apiReq(obj)
 			if err != nil {
-				log.Fatal(err)
-				fmt.Fprint(w, "{\"error\":\"Failed to POST to timepad\"}")
+				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			resp, err := http.DefaultClient.Do(req)
 
-			buf := new(bytes.Buffer)
-			buf.ReadFrom(resp.Body)
-			fmt.Fprint(w, buf.String())
-
-		default:
+			fmt.Fprint(w, resp)
+		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
@@ -68,6 +71,68 @@ func main() {
 
 }
 
-func apiReq() {
+// apiReq does the actual request to Timepad API and gets the response
+func apiReq(request ReqObj) (string, error) {
+	if request.Handle == "" {
+		return "", errors.New("no Handle parameter provided")
+	}
+
+	switch request.Handle {
+	case "/login":
+		// Prepare proxy vars
+		data := url.Values{
+			"code":             {request.Passcode},
+			"client_timestamp": {fmt.Sprint(request.Timestamp)},
+		}
+
+		req, err := http.NewRequest("POST", chkUrl+request.Handle, strings.NewReader(data.Encode()))
+
+		if err != nil {
+			log.Fatal(err)
+			return "", errors.New("failed to construct request for timepad")
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		resp, err := http.DefaultClient.Do(req)
+
+		if err != nil {
+			log.Fatal(err)
+			return "", errors.New("failed to post to timepad")
+		}
+
+		buf := new(bytes.Buffer)
+		buf.ReadFrom(resp.Body)
+		return buf.String(), nil
+
+	case "/sync":
+		// It is unclear what is the difference between time and client_timestamp,
+		// so they are both populated with the client timestamp
+		event := EventObj{"checked_in", request.TicketId, request.Timestamp}
+		data := SyncObj{request.Timestamp, []EventObj{event}}
+		b, err := json.Marshal(data)
+
+		if err != nil {
+			return "", errors.New("failed to construct JSON from input")
+		}
+
+		req, err := http.NewRequest("POST", chkUrl+request.Handle, bytes.NewBuffer(b))
+		if err != nil {
+			log.Fatal(err)
+			return "", errors.New("failed to construct request for timepad")
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			log.Fatal(err)
+			return "", errors.New("failed to post to timepad")
+		}
+
+		buf := new(bytes.Buffer)
+		buf.ReadFrom(resp.Body)
+		return buf.String(), nil
+
+	default:
+		return "", errors.New("handle is not allowed")
+	}
 
 }
