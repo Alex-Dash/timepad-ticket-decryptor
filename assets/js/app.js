@@ -1,8 +1,8 @@
 var DEF_PASSCODE = (document.cookie.includes("passcode=")) ? document.cookie.split('; ')
     .find(row => row.startsWith('passcode=')).split("=")[1] : undefined
 
-var LAST_SCAN_TIMESTAMP = (document.cookie.includes("lscan=")) ? document.cookie.split('; ')
-    .find(row => row.startsWith('lscan=')).split("=")[1] : undefined
+var LAST_SCAN_TIMESTAMP = (document.cookie.includes("lscan=")) ? Number(document.cookie.split('; ')
+    .find(row => row.startsWith('lscan=')).split("=")[1]) : undefined
 
 var SERVER = (document.cookie.includes("srv=")) ? document.cookie.split('; ')
     .find(row => row.startsWith('srv=')).split("=")[1] : undefined
@@ -39,7 +39,7 @@ function parseScanContents(scannedContent) {
         }
     }
 
-    let encoded_shit = cTrimmed.substr(cTrimmed.lastIndexOf("?d=") + 3)
+    let encoded_shit = cTrimmed.substring(cTrimmed.lastIndexOf("?d=") + 3)
     let ticket_type = cTrimmed.split("/")[4]
     try {
         encoded_shit = decodeURIComponent(encoded_shit)
@@ -58,14 +58,64 @@ function parseScanContents(scannedContent) {
     }
 }
 
+function displayInfo(obj) {
+    let output = ""
+    if (typeof(obj) === 'object'){
+        for (const key of Object.keys(obj)){
+            output += `<tr><td>${key}</td><td>${obj[key]}</td></tr>`
+            // @TODO: add parsed data col
+        }
+    }
+    document.getElementById("data").innerHTML = output
+}
+
+function handleScannedData(scanObj) {
+    switch (scanObj.type) {
+        case "ean-13":
+            displayInfo({"Printed Code": scanObj.content})
+            LAST_SCAN_TIMESTAMP = Date.now()
+            document.cookie = `lscan=${LAST_SCAN_TIMESTAMP}; SameSite=None; Secure`;
+            break;
+        case "qr":
+            const pubcode = META.ticket_types.get(scanObj.ticket_type_id)
+            if(!pubcode){
+                // @TODO: 'Ticket is not for selected event' error display
+            }
+            const res = decryptTicket(pubcode,scanObj.content)
+            if(res[0]!=='[' && res.endsWith!==']'){
+                // @TODO: Failed to decrypt QR data
+            }
+            
+            const resObj = JSON.parse(res)
+            displayInfo({
+                "Ticket ID": resObj[0],
+                "Event ID": resObj[1],
+                "Org ID": resObj[2],
+                "Order ID": resObj[3],
+                "Ticket Type ID": resObj[4],
+                "Flag": resObj[5]
+            })
+
+            break;
+        default:
+            break;
+    }
+}
+
 // listenerSetup sets up a listener on ENTER key, commonly used as "submit" on scanners
 function listenerSetup() {
     const area = document.getElementById("scanarea")
     area.focus()
     area.addEventListener('keyup', (e) => {
         if (e.key === 'Enter') {
-            console.log(parseScanContents(area.value))
+            const scan = parseScanContents(area.value)
             area.value = ""
+            console.log(scan)
+            if (scan.type==="error") {
+                displayInfo({})
+                return
+            }
+            handleScannedData(scan)
         }
     });
 }
@@ -111,13 +161,13 @@ async function apiRequest(payload, passcode = DEF_PASSCODE) {
 
 // config sets some global settings
 async function config(passcode, serverUrl) {
-    SERVER = serverUrl
+    SERVER = new URL(serverUrl).origin
     document.cookie = `srv=${SERVER}; SameSite=None; Secure`;
     let ret
     await apiRequest({
             "Handle": "/login",
             "Passcode": passcode,
-            "Timestamp": parseInt(Date.now()/1000)
+            "Timestamp": parseInt(Date.now() / 1000)
         }).then((r) => r.text().then((t) => JSON.parse(t)))
         .then((jso) => {
             META = {}
@@ -161,7 +211,7 @@ function loginRoutine() {
 
         loginForm.style.display = "block"
         mc.style.filter = "blur(6px)"
-        
+
         // Bind login logic to a button
         btn.onclick = function () {
             let pass = passInput.value
@@ -201,4 +251,13 @@ function loginRoutine() {
         }
 
     }
+}
+
+function logout() {
+    for (const cookie of document.cookie.split(";")) {
+        var v = cookie.indexOf("=");
+        var name = (v > -1) ? cookie.substring(0, v) : cookie;
+        document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    }
+    window.location.reload();
 }
